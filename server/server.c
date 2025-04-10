@@ -50,9 +50,10 @@ void broadcast_message(int sender_fd, const char *message) {
 void *handle_client(void *arg) {
     client_t *cli = (client_t *)arg;
     char buffer[BUFFER_SIZE];
+    int bytes;
     
     // Authentication
-    int bytes = recv(cli->socket, buffer, BUFFER_SIZE, 0);
+    bytes = recv(cli->socket, buffer, BUFFER_SIZE, 0);
     if (bytes <= 0) {
         close(cli->socket);
         free(cli);
@@ -63,8 +64,10 @@ void *handle_client(void *arg) {
     // Parse auth packet and authenticate
     
     // Main message loop
-    while ((bytes = recv(cli->socket, buffer, BUFFER_SIZE, 0)) {
+    while (1) {
+        bytes = recv(cli->socket, buffer, BUFFER_SIZE, 0);
         if (bytes <= 0) break;
+        
         buffer[bytes] = '\0';
         
         if (buffer[0] == '@') {
@@ -83,9 +86,8 @@ void *handle_client(void *arg) {
 }
 
 int main() {
-    int server_fd, client_fd;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t client_len = sizeof(client_addr);
+    int server_fd;
+    struct sockaddr_in server_addr;
     
     // Initialize database
     if (sqlite3_open("chat.db", &db) != SQLITE_OK) {
@@ -118,7 +120,10 @@ int main() {
     printf("Server running on port %d\n", ntohs(server_addr.sin_port));
     
     while (1) {
-        client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        int client_fd = accept(server_fd, (struct sockaddr *)&client_addr, &client_len);
+        
         if (client_fd < 0) {
             perror("Accept failed");
             continue;
