@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra
-LIBS = -lsqlite3 -lpthread
+LIBS = -lsqlite3 -lpthread -lsodium
 
 all: server
 

@@ -1,15 +1,21 @@
-#include <bcrypt.h>
+#include <sodium.h>
 #include <string.h>
-#include "auth.h"
 
-char* hash_password(const char *password) {
-    char salt[BCRYPT_HASHSIZE];
-    char hash[BCRYPT_HASHSIZE];
-    bcrypt_gensalt(12, salt);
-    bcrypt_hashpw(password, salt, hash);
-    return strdup(hash);
+void hash_password(const char *password, char *output) {
+    if (sodium_init() < 0) {
+        exit(1); // Library initialization failed
+    }
+    
+    char salt[crypto_pwhash_SALTBYTES];
+    randombytes_buf(salt, sizeof salt);
+    
+    if (crypto_pwhash_str(output, password, strlen(password),
+        crypto_pwhash_OPSLIMIT_INTERACTIVE,
+        crypto_pwhash_MEMLIMIT_INTERACTIVE) != 0) {
+        exit(1); // Out of memory
+    }
 }
 
 int verify_password(const char *password, const char *hash) {
-    return bcrypt_checkpw(password, hash) == 0;
+    return crypto_pwhash_str_verify(hash, password, strlen(password)) == 0;
 }
