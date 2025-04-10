@@ -47,6 +47,20 @@ void broadcast_message(int sender_fd, const char *message) {
     pthread_mutex_unlock(&clients_mutex);
 }
 
+void send_private_message(int sender_fd, const char *recipient, const char *message) {
+    pthread_mutex_lock(&clients_mutex);
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] && strcmp(clients[i]->username, recipient) == 0) {
+            char formatted_msg[BUFFER_SIZE];
+            snprintf(formatted_msg, sizeof(formatted_msg), "[PM from %s] %s", 
+                    clients[sender_fd]->username, message);
+            send(clients[i]->socket, formatted_msg, strlen(formatted_msg), 0);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&clients_mutex);
+}
+
 void *handle_client(void *arg) {
     client_t *cli = (client_t *)arg;
     char buffer[BUFFER_SIZE];
@@ -74,7 +88,9 @@ void *handle_client(void *arg) {
             // Private message
             char *recipient = strtok(buffer+1, " ");
             char *message = strtok(NULL, "\n");
-            // Find recipient and send
+            if (recipient && message) {
+                send_private_message(cli->socket, recipient, message);
+            }
         } else {
             broadcast_message(cli->socket, buffer);
         }
@@ -107,7 +123,7 @@ int main() {
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(getenv("PORT") ? atoi(getenv("PORT")) : 8080);
     
-    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) {
+    if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("Bind failed");
         return 1;
     }

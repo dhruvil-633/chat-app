@@ -1,4 +1,2 @@
-#!/bin/bash
-cd "$(dirname "$0")"
-make
-./server
+# In your local repository before pushing to GitHub
+chmod +x server/start.sh
