@@ -5,33 +5,38 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <sqlite3.h>
-#include "protocol.h"
 
 #define MAX_CLIENTS 100
 #define BUFFER_SIZE 2048
-#define HTTP_PORT 8081  // Different port for HTTP
+#define SERVER_PORT 8080
+
+typedef struct {
+    int socket;
+    struct sockaddr_in address;
+    char username[32];
+    pthread_t thread;
+} client_t;
 
 client_t *clients[MAX_CLIENTS];
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 sqlite3 *db;
 
-// Simple HTTP response with chat interface
 const char *http_response = 
 "HTTP/1.1 200 OK\r\n"
 "Content-Type: text/html\r\n"
 "Connection: close\r\n\r\n"
 "<html><head><title>Chat Server</title><style>"
 "body {font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px;}"
-"#messages {border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; margin-bottom: 10px;}"
-"#msg {width: 70%; padding: 8px;}"
-"button {padding: 8px 15px; background: #4CAF50; color: white; border: none;}"
+"#messages {border: 1px solid #ddd; padding: 10px; height: 300px; overflow-y: scroll; margin-bottom: 10px; background: #f9f9f9;}"
+"#msg {width: 70%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;}"
+"button {padding: 8px 15px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer;}"
 "</style></head><body>"
 "<h1>Chat Server</h1>"
 "<div id='messages'></div>"
 "<input id='msg' placeholder='Type your message'>"
 "<button onclick='send()'>Send</button>"
 "<script>"
-"const ws = new WebSocket('ws://'+location.hostname+':%d');"
+"const ws = new WebSocket('wss://'+location.host);"
 "ws.onmessage = e => {"
 "  const msg = JSON.parse(e.data);"
 "  const messages = document.getElementById('messages');"
@@ -78,7 +83,6 @@ void broadcast_message(int sender_fd, const char *message) {
     pthread_mutex_lock(&clients_mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (clients[i] && clients[i]->socket != sender_fd) {
-            // Format message as JSON for frontend
             char json_msg[BUFFER_SIZE];
             snprintf(json_msg, sizeof(json_msg), 
                     "{\"sender\":\"%s\",\"text\":\"%s\"}", 
@@ -109,7 +113,17 @@ void* handle_client(void *arg) {
     char buffer[BUFFER_SIZE];
     int bytes;
     
-    // Authentication
+    // Check if this is an HTTP request
+    bytes = recv(cli->socket, buffer, BUFFER_SIZE, MSG_PEEK);
+    if (bytes > 0 && strstr(buffer, "HTTP")) {
+        // Send HTTP response
+        send(cli->socket, http_response, strlen(http_response), 0);
+        close(cli->socket);
+        free(cli);
+        return NULL;
+    }
+    
+    // Otherwise handle as WebSocket connection
     bytes = recv(cli->socket, buffer, BUFFER_SIZE, 0);
     if (bytes <= 0) {
         close(cli->socket);
@@ -118,11 +132,9 @@ void* handle_client(void *arg) {
     }
     
     buffer[bytes] = '\0';
-    // Store username (simple auth for demo)
     strncpy(cli->username, buffer, sizeof(cli->username)-1);
     cli->username[sizeof(cli->username)-1] = '\0';
     
-    // Main message loop
     while (1) {
         bytes = recv(cli->socket, buffer, BUFFER_SIZE, 0);
         if (bytes <= 0) break;
@@ -130,7 +142,6 @@ void* handle_client(void *arg) {
         buffer[bytes] = '\0';
         
         if (buffer[0] == '@') {
-            // Private message
             char *recipient = strtok(buffer+1, " ");
             char *message = strtok(NULL, "\n");
             if (recipient && message) {
@@ -146,29 +157,6 @@ void* handle_client(void *arg) {
     return NULL;
 }
 
-void* http_server(void* arg) {
-    int http_fd = socket(AF_INET, SOCK_STREAM, 0);
-    struct sockaddr_in http_addr = {
-        .sin_family = AF_INET,
-        .sin_addr.s_addr = INADDR_ANY,
-        .sin_port = htons(HTTP_PORT)
-    };
-    
-    bind(http_fd, (struct sockaddr*)&http_addr, sizeof(http_addr));
-    listen(http_fd, 10);
-    
-    printf("HTTP server running on port %d\n", HTTP_PORT);
-    
-    while (1) {
-        int client = accept(http_fd, NULL, NULL);
-        char response[2048];
-        snprintf(response, sizeof(response), http_response, ntohs(http_addr.sin_port));
-        write(client, response, strlen(response));
-        close(client);
-    }
-    return NULL;
-}
-
 int main() {
     int server_fd;
     struct sockaddr_in server_addr;
@@ -179,17 +167,17 @@ int main() {
         return 1;
     }
     
-    // Create chat socket
+    // Create socket
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         perror("Socket creation failed");
         return 1;
     }
     
-    // Configure chat server
+    // Configure server
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(getenv("PORT") ? atoi(getenv("PORT")) : 8080);
+    server_addr.sin_port = htons(getenv("PORT") ? atoi(getenv("PORT")) : SERVER_PORT);
     
     if (bind(server_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
         perror("Bind failed");
@@ -201,13 +189,8 @@ int main() {
         return 1;
     }
     
-    printf("Chat server running on port %d\n", ntohs(server_addr.sin_port));
+    printf("Server running on port %d\n", ntohs(server_addr.sin_port));
     
-    // Start HTTP server thread
-    pthread_t http_thread;
-    pthread_create(&http_thread, NULL, http_server, NULL);
-    
-    // Main accept loop for chat server
     while (1) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
