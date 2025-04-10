@@ -203,12 +203,16 @@ pthread_create(&recv_thread, NULL, receive_handler, NULL);
 
 ## Compilation & Execution
 
+### Server (`server.c`)
+
+#### Compile
 ```bash
 gcc server.c -o server -lpthread
-gcc client.c -o client -lpthread
-
 ./server
-
+```
+### Users (`client.c`)
+```bash
+gcc client.c -o client -lpthread
 ./client
 ```
 
